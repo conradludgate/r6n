@@ -1,0 +1,9 @@
+[package]
+name = "r6n"
+version = "0.0.0"
+edition = "2021"
+description = "Rusty Randomized Recursive Routing for Restricted-Route Networks. R5N DHT implementation in Rust."
+keywords = ["r5n", "dht", "p2p"]
+categories = ["network-programming"]
+
+[dependencies]
