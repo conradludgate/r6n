@@ -1,44 +1,102 @@
-use std::time::Instant;
+use std::{
+    mem,
+    time::{Duration, Instant},
+};
 
-pub mod underlay;
+use curve25519_dalek::edwards::CompressedEdwardsY;
+
 pub mod bloom;
+pub mod underlay;
 
-pub struct Peer;
+// as far as I can tell, R5N requires EdDSA (Ed25519).
+#[derive(PartialEq, Eq)]
+pub struct Peer(curve25519_dalek::edwards::CompressedEdwardsY);
+
+impl PartialOrd for Peer {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for Peer {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        Ord::cmp(self.0.as_bytes(), other.0.as_bytes())
+    }
+}
+
+impl Peer {
+    fn id(&self) -> PeerId {
+        use sha2::Digest;
+        PeerId(sha2::Sha512::digest(self.0.as_bytes()).into())
+    }
+}
+
 pub struct PeerId([u8; 64]);
 pub struct Message;
 
 pub struct RoutingTable {
     host: PeerId,
+    epoch: Instant,
     neighbours: Vec<u8>,
     routes: Vec<Route>,
 }
 
 impl RoutingTable {
-    fn insert(&mut self, peer: Peer, id: &PeerId) {
-        let dist = log2_xor_dist(&self.host, id);
+    fn insert(&mut self, peer: Peer) -> Result<(), Peer> {
+        let id = peer.id();
+        let dist = log2_xor_dist(&self.host, &id);
         self.neighbours[dist as usize] += 1;
 
-        let created = Instant::now();
-        let index = self
-            .routes
-            .binary_search_by_key(&(dist, created), |route| (route.dist, route.created))
-            .expect_err("duplicate peer should not exist");
+        let created = Instant::now().duration_since(self.epoch);
+        let new_route = Route {
+            dist,
+            created,
+            peer,
+        };
 
-        self.routes.insert(
-            index,
-            Route {
-                dist,
-                created,
-                peer,
-            },
-        )
+        match self.routes.binary_search(&new_route) {
+            // peer already inserted? disconnect previous
+            Ok(i) => Err(mem::replace(&mut self.routes[i], new_route).peer),
+            Err(i) => {
+                self.routes.insert(i, new_route);
+                Ok(())
+            }
+        }
+    }
+
+    /// Find the last peer in this k-bucket. corresponds to the shortest lived connection.
+    fn last_k(&self, dist: u16) -> Option<usize> {
+        if self.neighbours[dist as usize] == 0 {
+            return None;
+        }
+
+        let successor = Route {
+            dist: dist + 1,
+            created: Duration::ZERO,
+            peer: Peer(CompressedEdwardsY([0; 32])),
+        };
+
+        let last = match self.routes.binary_search(&successor) {
+            // this is the first of the next dist
+            // subtract 1 to get the last of the prev dist
+            Ok(i) => i.checked_sub(1)?,
+            // this is where the first of the next dist should get inserted
+            // which would be just after this dist.
+            Err(i) => i.checked_sub(1)?,
+        };
+
+        if self.routes[last].dist != dist {
+            return None;
+        }
+
+        Some(last)
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct Route {
     // log2 XOR distance from peer to host
     dist: u16,
-    created: Instant,
+    created: Duration,
     peer: Peer,
 }
 
