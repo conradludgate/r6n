@@ -5,7 +5,9 @@ use std::{
 
 use curve25519_dalek::edwards::CompressedEdwardsY;
 
+pub mod block;
 pub mod bloom;
+pub mod message;
 pub mod underlay;
 
 // as far as I can tell, R5N requires EdDSA (Ed25519).

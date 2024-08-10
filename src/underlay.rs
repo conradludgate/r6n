@@ -1,6 +1,5 @@
 use crate::{Message, Peer};
 
-
 /// R5N does not specify an underlay network. This is the application's
 /// responsibility to provide.
 pub trait Underlay {
