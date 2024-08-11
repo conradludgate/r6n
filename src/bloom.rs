@@ -1,7 +1,9 @@
-use zerocopy::{big_endian, FromBytes, FromZeroes};
+use zerocopy::{big_endian, AsBytes, FromBytes, FromZeroes, Unaligned};
 
 use crate::PeerId;
 
+#[derive(FromBytes, FromZeroes, AsBytes, Unaligned)]
+#[repr(C)]
 pub struct BloomFilter {
     bits: [u8; 128],
 }
