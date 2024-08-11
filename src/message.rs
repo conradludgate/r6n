@@ -4,7 +4,7 @@ use zerocopy::{big_endian, AsBytes, FromBytes, FromZeroes, Unaligned};
 
 use crate::{
     block::{BlockKey, Timestamp},
-    bloom::BloomFilter,
+    bloom::{BloomFilter, PeerBloomFilter},
     Peer,
 };
 
@@ -58,7 +58,7 @@ pub struct PutMessageHeader {
     replication_level: big_endian::U16,
     path_len: big_endian::U16,
     expiration: Timestamp,
-    peer_bloom_filter: BloomFilter,
+    peer_bloom_filter: PeerBloomFilter,
     block_key: BlockKey,
 }
 
@@ -114,7 +114,7 @@ pub struct GetMessageHeader {
     hop_count: big_endian::U16,
     replication_level: big_endian::U16,
     result_filter_size: big_endian::U16,
-    peer_bloom_filter: BloomFilter,
+    peer_bloom_filter: PeerBloomFilter,
     query_hash: [u8; 64],
 }
 
