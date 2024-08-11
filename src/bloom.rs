@@ -13,22 +13,16 @@ impl Default for PeerBloomFilter {
 }
 
 impl PeerBloomFilter {
-    fn get_ref(&self) -> BloomFilter<&[u8; 128]> {
-        BloomFilter {
-            byte_mask: 127,
-            bytes: &self.bits,
-        }
+    pub fn get_ref(&self) -> BloomFilter<&[u8; 128]> {
+        BloomFilter::from(&self.bits).unwrap()
     }
-    fn get_mut(&mut self) -> BloomFilter<&mut [u8; 128]> {
-        BloomFilter {
-            byte_mask: 127,
-            bytes: &mut self.bits,
-        }
+    pub fn get_mut(&mut self) -> BloomFilter<&mut [u8; 128]> {
+        BloomFilter::from(&mut self.bits).unwrap()
     }
 }
 
 pub struct BloomFilter<B> {
-    byte_mask: u32,
+    byte_mask: usize,
     bytes: B,
 }
 
@@ -37,12 +31,23 @@ impl BloomFilter<Vec<u8>> {
         if !bits.is_power_of_two() || bits < 8 {
             return None;
         }
-        let bytes = bits / 8;
+        let bytes = usize::try_from(bits / 8).ok()?;
         let byte_mask = bytes - 1;
         Some(Self {
             byte_mask,
-            bytes: vec![0; bytes as usize],
+            bytes: vec![0; bytes],
         })
+    }
+}
+
+impl<B: AsRef<[u8]>> BloomFilter<B> {
+    pub fn from(bytes: B) -> Option<Self> {
+        let b = bytes.as_ref().len();
+        if !b.is_power_of_two() {
+            return None;
+        }
+        let byte_mask = b - 1;
+        Some(Self { byte_mask, bytes })
     }
 }
 
@@ -59,12 +64,11 @@ impl<B: AsMut<[u8]>> BloomFilter<B> {
     }
 }
 
-fn bf_test_inner(bytes: &[u8], mask: u32, key: &[u8; 64]) -> bool {
+fn bf_test_inner(bytes: &[u8], mask: usize, key: &[u8; 64]) -> bool {
     let keys = Keys::ref_from(key).unwrap();
-    let mask = mask as usize;
 
     let mut out = true;
-    for k in keys.0 {
+    for k in &keys.0 {
         let k = k.get();
         let bit = k & 0x7;
         let byte = (k >> 3) as usize;
@@ -81,11 +85,10 @@ fn bf_test_inner(bytes: &[u8], mask: u32, key: &[u8; 64]) -> bool {
     out
 }
 
-fn bf_insert_inner(bytes: &mut [u8], mask: u32, key: &[u8; 64]) {
+fn bf_insert_inner(bytes: &mut [u8], mask: usize, key: &[u8; 64]) {
     let keys = Keys::ref_from(key).unwrap();
-    let mask = mask as usize;
 
-    for k in keys.0 {
+    for k in &keys.0 {
         let k = k.get();
         let bit = k & 0x7;
         let byte = (k >> 3) as usize;

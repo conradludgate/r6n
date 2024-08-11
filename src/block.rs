@@ -3,7 +3,25 @@ use ed25519_dalek::{ed25519::SignatureBytes, Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha512};
 use zerocopy::{big_endian, AsBytes, FromBytes, FromZeroes, Unaligned};
 
-use crate::Peer;
+use crate::{bloom::BloomFilter, xor, Peer};
+
+pub enum FilterResult {
+    /// Block is a valid result, and there may be more.
+    More,
+    /// The given Block is the last possible valid result.
+    Last,
+    /// Block is a valid result, but considered to be a duplicate
+    /// (was filtered by the RF) and SHOULD NOT be returned to the
+    /// previous hop. Peers that do not understand the block type MAY
+    /// return such duplicate results anyway and implementations must
+    /// take this into account.
+    Duplicate,
+    /// Block does not satisfy the constraints imposed by the XQuery.
+    /// The result SHOULD NOT be returned to the previous hop. Peers
+    /// that do not understand the block type MAY return such irrelevant
+    /// results anyway and implementations must take this into account.
+    Irrelevant,
+}
 
 trait BlockOperation {
     /// is used to evaluate the request for a block as part of GetMessage processing. Here, the block payload is unkown, but if possible the XQuery and Key SHOULD be verified
@@ -13,8 +31,9 @@ trait BlockOperation {
     /// is used to evaluate a block payload as part of PutMessage and ResultMessage processing
     fn validate_block_store_request(&self) -> bool;
 
-    // fn setup_result_filter();
-    // fn filter_result();
+    type Mutator;
+    fn setup_result_filter(&self, filter_size: u32, mutator: Self::Mutator) -> Vec<u8>;
+    fn filter_result(&self, key: &BlockKey, rf: &mut [u8], x_query: &[u8]) -> FilterResult;
 }
 
 #[derive(FromZeroes, FromBytes, AsBytes, Unaligned)]
@@ -51,6 +70,39 @@ impl BlockOperation for HelloBlock<'_> {
         let expected_sig = Signature::from_bytes(&self.header.signature);
 
         pk.verify(sig.as_bytes(), &expected_sig).is_ok()
+    }
+
+    type Mutator = u32;
+    fn setup_result_filter(&self, filter_size: u32, mutator: Self::Mutator) -> Vec<u8> {
+        const MAX_BYTES: u32 = 1 << 15;
+        let e = filter_size.next_power_of_two();
+        let b = e * 16 / 4;
+
+        let mut result_filter = vec![0u8; b as usize + 4];
+        result_filter[..4].copy_from_slice(&mutator.to_be_bytes()[..]);
+        result_filter
+    }
+
+    fn filter_result(&self, _key: &BlockKey, rf: &mut [u8], _x_query: &[u8]) -> FilterResult {
+        let Some(mutator) = rf.get(..4) else {
+            return FilterResult::Irrelevant;
+        };
+        let mutator: [u8; 4] = mutator.try_into().unwrap();
+
+        let Some(bloom) = BloomFilter::from(&mut rf[4..]) else {
+            return FilterResult::Irrelevant;
+        };
+
+        // let mutator = u32::from_be_bytes(mutator);
+        let mutator = Sha512::digest(mutator).into();
+        let hash_addrs = Sha512::digest(self.addrs.0.as_bytes()).into();
+        let e = xor(&mutator, &hash_addrs);
+
+        if bloom.test(&e) {
+            FilterResult::Duplicate
+        } else {
+            FilterResult::More
+        }
     }
 }
 

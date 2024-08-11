@@ -118,6 +118,17 @@ pub fn log2_xor_dist(peer1: &PeerId, peer2: &PeerId) -> u16 {
     512 - dist
 }
 
+pub fn xor(x: &[u8; 64], y: &[u8; 64]) -> [u8; 64] {
+    let mut out = [0; 64];
+
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..64 {
+        out[i] = x[i] ^ y[i];
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{log2_xor_dist, PeerId};
